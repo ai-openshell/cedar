@@ -637,6 +637,11 @@ fn entity_manifest_from_expr(
             Ok(res)
         }
         ExprKind::Like { expr, pattern: _ }
+        | ExprKind::LikeDelimited {
+            expr,
+            pattern: _,
+            delim: _,
+        }
         | ExprKind::Is {
             expr,
             entity_type: _,
