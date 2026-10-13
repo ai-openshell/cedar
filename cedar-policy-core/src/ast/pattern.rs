@@ -22,8 +22,12 @@ use std::sync::Arc;
 pub enum PatternElem {
     /// A character literal
     Char(char),
-    /// The wildcard `*`
+    /// The wildcard `*`. Matches any run of characters, excluding the
+    /// delimiter under a delimited `like`.
     Wildcard,
+    /// The double wildcard `**`. Only produced by the delimited parser;
+    /// matches any run of characters.
+    MultiWildcard,
 }
 
 /// Represent a pattern literal (the RHS of the like operator)
@@ -86,6 +90,7 @@ impl std::fmt::Display for Pattern {
                 PatternElem::Char('*') => write!(f, r#"\*"#)?,
                 PatternElem::Char(c) => write!(f, "{}", c.escape_debug())?,
                 PatternElem::Wildcard => write!(f, r#"*"#)?,
+                PatternElem::MultiWildcard => write!(f, r#"**"#)?,
             }
         }
         Ok(())
@@ -96,15 +101,26 @@ impl PatternElem {
     fn match_char(self, text_char: char) -> bool {
         match self {
             PatternElem::Char(c) => text_char == c,
-            PatternElem::Wildcard => true,
+            PatternElem::Wildcard | PatternElem::MultiWildcard => true,
         }
     }
     fn is_wildcard(self) -> bool {
-        matches!(self, PatternElem::Wildcard)
+        matches!(self, PatternElem::Wildcard | PatternElem::MultiWildcard)
     }
 }
 
 impl Pattern {
+    /// Find if the argument text matches the pattern under a delimiter.
+    /// `*` matches any run of non-delimiter characters, `**` matches any
+    /// run of characters.
+    pub fn wildcard_match_delimited(&self, text: &str, delim: char) -> bool {
+        let pattern = self.get_elems();
+        let text: Vec<char> = text.chars().collect();
+        let mut cache: std::collections::HashMap<(usize, usize), bool> =
+            std::collections::HashMap::new();
+        wildcard_match_delimited_idx(&text, pattern, 0, 0, delim, &mut cache)
+    }
+
     /// Find if the argument text matches the pattern
     pub fn wildcard_match(&self, text: &str) -> bool {
         let pattern = self.get_elems();
@@ -163,6 +179,57 @@ impl Pattern {
 
         j == pattern_len
     }
+}
+
+/// Memoised DP for delimiter-aware wildcard matching.
+fn wildcard_match_delimited_idx(
+    text: &[char],
+    pattern: &[PatternElem],
+    i: usize,
+    j: usize,
+    delim: char,
+    cache: &mut std::collections::HashMap<(usize, usize), bool>,
+) -> bool {
+    if let Some(&b) = cache.get(&(i, j)) {
+        return b;
+    }
+    let result = if j == pattern.len() {
+        i == text.len()
+    } else if i == text.len() {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "j < pattern.len() by the else branch above"
+        )]
+        match pattern[j] {
+            PatternElem::MultiWildcard | PatternElem::Wildcard => {
+                wildcard_match_delimited_idx(text, pattern, i, j + 1, delim, cache)
+            }
+            PatternElem::Char(_) => false,
+        }
+    } else {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "i < text.len() and j < pattern.len()"
+        )]
+        match pattern[j] {
+            PatternElem::MultiWildcard => {
+                wildcard_match_delimited_idx(text, pattern, i, j + 1, delim, cache)
+                    || wildcard_match_delimited_idx(text, pattern, i + 1, j, delim, cache)
+            }
+            PatternElem::Wildcard => {
+                let c = text[i];
+                wildcard_match_delimited_idx(text, pattern, i, j + 1, delim, cache)
+                    || (c != delim
+                        && wildcard_match_delimited_idx(text, pattern, i + 1, j, delim, cache))
+            }
+            PatternElem::Char(k) => {
+                text[i] == k
+                    && wildcard_match_delimited_idx(text, pattern, i + 1, j + 1, delim, cache)
+            }
+        }
+    };
+    cache.insert((i, j), result);
+    result
 }
 
 #[cfg(test)]

@@ -103,6 +103,7 @@ pub enum Op {
     SetInter,
 
     StringLike(OrdPattern), // Core ADT operator with trusted mapping to SMT
+    StringLikeExtended(OrdPattern, char), // Core ADT operator with trusted mapping to SMT
     Uuf(Arc<Uuf>),          // SMTLib core theory of equality with uninterpreted functions (`UF`)
     ZeroExtend(u32), // allowed to be 0. This is from the `BV` theory, like the variants that begin with `Bv`
 }
@@ -165,6 +166,7 @@ impl Op {
             Op::OptionGet => "option.get",
             Op::RecordGet(_) => "record.get",
             Op::StringLike(_) => "string.like",
+            Op::StringLikeExtended(_, _) => "string.likeExtended",
             Op::Ext(_) => "ext",
         }
     }
